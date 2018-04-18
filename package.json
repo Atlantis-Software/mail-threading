@@ -1,0 +1,34 @@
+{
+  "name": "mail-threading",
+  "version": "0.0.1",
+  "description": "a javascript asynchronous library for threading emails",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Atlantis-Software/mail-threading.git"
+  },
+  "keywords": [
+    "mail",
+    "email",
+    "threading"
+  ],
+  "author": {
+    "name": "Alexandre Tiertant"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "asynk": "~0.0.11",
+    "lodash": "~4.17.4"
+  },
+  "devDependencies": {
+    "it-is": "^1.0.3",
+    "mocha": ">=2.2.5"
+  },
+  "bugs": {
+    "url": "https://github.com/Atlantis-Software/mail-threading/issues"
+  },
+  "homepage": "https://github.com/Atlantis-Software/mail-threading"
+}
