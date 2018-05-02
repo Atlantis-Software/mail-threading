@@ -1,9 +1,9 @@
-var itIs = require('it-is');
-var Mail = require('./index.js');
+var assert = require('assert');
+var Mail = require('../index.js');
 var asynk = require('asynk');
+var _ = require('lodash');
 
 function isDummy(container) {
-  //return typeof(container.message) === "undefined";
   return container.message === null;
 }
 
@@ -30,137 +30,209 @@ function createMessage(subject, messageId) {
   return {
     subject: subject,
     messageId: messageId,
-    userId: 0,
-    categoryId: 0,
     from_email: "test@test.com",
-    content: "this is only a test",
-    readConfirmation: false,
-    size: 10,
-    hasAttachment: false,
-    read: false,
-    answer: false,
-    forward: false,
-    follow: false
+    content: "this is only a test"
   };
 }
 
-var orm = require('../core/orm');
 var mail;
 var createMessages;
 
 describe('Test conversation', function() {
-  before(function(done) {
-    orm.get({
-      adapter: 'mysql',
-      host: 'mysql-dev',
-      port: 3306,
-      database: 'webmail3',
-      user: 'root',
-      password: 'Atlantis2013!'
-    }, function(err, database) {
-      if (err) {
-        return done(err);
+  before(function() {
+    var mails = [];
+    var mailID = 0;
+    var containers = [];
+    var containerID = 0;
+    var conversations = [];
+    var conversationID = 0;
+    mail = new Mail();
+    // Conversation CRUD
+    mail.conversation.onCreate(function(conversation, cb) {
+      if (!conversation.id) {
+        conversation.id = ++conversationID;
       }
-      mail = new Mail();
-      // Conversation CRUD
-      mail.conversation.onCreate(function(conversation, cb) {
-        database.conversation.create(conversation, cb);
-      });
-      mail.conversation.onRead(function(where, cb) {
-        database.conversation.findOne(where).populate('container').exec(cb);
-      });
-      mail.conversation.onUpdate(function(where, fields, cb) {
-        database.conversation.update(where, fields, cb);
-      });
-      mail.conversation.onDelete(function(where, cb) {
-        database.conversation.destroy(where, cb);
-      });
-      // Container CRUD
-      mail.container.onCreate(function(container, cb) {
-        database.container.create(container, cb);
-      });
-      mail.container.onRead(function(where, cb) {
-        database.container.findOne(where).populate('children').populate('message').populate('parent').exec(cb);
-      });
-      mail.container.onUpdate(function(where, fields, cb) {
-        database.container.update(where, fields, cb);
-      });
-      mail.container.onDelete(function(where, cb) {
-        database.container.destroy(where, cb);
-      });
-      
-      createMessages = function(messages, cb) {
-        asynk.each(messages, function (msg, cb) {
-          database.email.find({ messageId: msg.messageId }, function (err, message) {
-            if (err) {
-              return cb(err);
-            }
-            if (message.length) {
-              return cb(null, message[0]);
-            }
-            database.email.create(msg, cb);
-          });
-        }).serie().done(function (messages) {
-          cb(null, messages);
-        });
-      };
-
-      done();
+      conversations.push(conversation);
+      return cb(null, conversation);
     });
+
+    mail.conversation.onRead(function(where, cb) {
+      var criterias = _.keys(where);
+      var selected = _.find(conversations, function(conversation) {
+        var thisOne = true;
+        criterias.forEach(function(criteria) {
+          if (where[criteria] !== conversation[criteria]) {
+            thisOne = false;
+          }
+        });
+        return thisOne;
+      });
+      if (!selected) {
+        return cb();
+      }
+      selected = _.clone(selected);
+      if (selected.container) {
+        selected.container = _.find(containers, function(container) {
+          return selected.container === container.id;
+        });
+      }
+      return cb(null, selected);
+    });
+
+    mail.conversation.onUpdate(function(where, fields, cb) {
+      var criterias = _.keys(where);
+      var selection = _.filter(conversations, function(conversation) {
+        var thisOne = true;
+        criterias.forEach(function(criteria) {
+          if (where[criteria] !== conversation[criteria]) {
+            thisOne = false;
+          }
+        });
+        return thisOne;
+      });
+      var attributes = _.keys(fields);
+      selection.forEach(function(conversation) {
+        attributes.forEach(function(field) {
+          conversation[field] = fields[field];
+        });
+      });
+      cb(null, selection);
+    });
+
+    // Container CRUD
+    mail.container.onCreate(function(container, cb) {
+      if (!container.id) {
+        container.id = ++containerID;
+      }
+      containers.push(container);
+      cb(null, container);
+    });
+
+    mail.container.onRead(function(where, cb) {
+      var criterias = _.keys(where);
+      var selected = _.find(containers, function(container) {
+        var thisOne = true;
+        criterias.forEach(function(criteria) {
+          if (where[criteria] !== container[criteria]) {
+            thisOne = false;
+          }
+        });
+        return thisOne;
+      });
+
+      if (!selected) {
+        return cb();
+      }
+      
+      selected = _.clone(selected);
+
+      selected.children = _.filter(containers, function(container) {
+        return container.parent === selected.id;
+      });
+
+      if (selected.parent) {
+        selected.parent = _.find(containers, function(container) {
+          return container.id === selected.parent;
+        });
+      }
+
+      if (selected.message) {
+        selected.message = _.find(mails, function(mail) {
+          return mail.id === selected.message;
+        });
+      }
+      return cb(null, selected);
+    });
+
+    mail.container.onUpdate(function(where, fields, cb) {
+      var criterias = _.keys(where);
+      var selection = _.filter(containers, function(container) {
+        var thisOne = true;
+        criterias.forEach(function(criteria) {
+          if (where[criteria] !== container[criteria]) {
+            thisOne = false;
+          }
+        });
+        return thisOne;
+      });
+      var attributes = _.keys(fields);
+      selection.forEach(function(container) {
+        attributes.forEach(function(field) {
+          container[field] = fields[field];
+        });
+      });
+      cb(null, selection);
+    });
+    
+    createMessages = function(messages, cb) {
+      asynk.each(messages, function (msg, cb) {
+        var selected = _.find(mails, function(mail) {
+          return mail.messageId === msg.messageId;
+        });
+        if (selected) {
+          return cb(null, selected);
+        }
+        msg.id = ++mailID;
+        mails.push(msg);
+        cb(null, msg);
+      }).serie().done(function (messages) {
+        cb(null, messages);
+      });
+    };
   });
 
 
   // ---- message regex tests ---- #1
   it('it shoud normalize subject', function(done) {
     var util = mail.helpers;
-    itIs("Subject").equal(util.normalizeSubject("Subject"));
-    itIs("Subject").equal(util.normalizeSubject("Re:Subject"));
-    itIs("Subject").equal(util.normalizeSubject("RE:Subject"));
-    itIs("Subject").equal(util.normalizeSubject("Re: Re[2]:Subject"));
-    itIs("Subject").equal(util.normalizeSubject("Re[2]:Subject"));
-    itIs("Subject").equal(util.normalizeSubject("Re: Subject"));
-    itIs("Subject").equal(util.normalizeSubject("Re:Re:Subject"));
-    itIs("Subject").equal(util.normalizeSubject("Re: Re: Subject"));
-    itIs("Subject").equal(util.normalizeSubject("Fwd:Subject"));
-    itIs("Subject").equal(util.normalizeSubject("Fwd:Fwd:Subject"));
-    itIs("Subject").equal(util.normalizeSubject("Fwd: Fwd: Subject"));
-    itIs("Subject").equal(util.normalizeSubject("Fwd: Subject"));
+    assert.equal("Subject", util.normalizeSubject("Subject"));
+    assert.equal("Subject", util.normalizeSubject("Re:Subject"));
+    assert.equal("Subject", util.normalizeSubject("RE:Subject"));
+    assert.equal("Subject", util.normalizeSubject("Re: Re[2]:Subject"));
+    assert.equal("Subject", util.normalizeSubject("Re[2]:Subject"));
+    assert.equal("Subject", util.normalizeSubject("Re: Subject"));
+    assert.equal("Subject", util.normalizeSubject("Re:Re:Subject"));
+    assert.equal("Subject", util.normalizeSubject("Re: Re: Subject"));
+    assert.equal("Subject", util.normalizeSubject("Fwd:Subject"));
+    assert.equal("Subject", util.normalizeSubject("Fwd:Fwd:Subject"));
+    assert.equal("Subject", util.normalizeSubject("Fwd: Fwd: Subject"));
+    assert.equal("Subject", util.normalizeSubject("Fwd: Subject"));
 
-    itIs(true).equal(util.isReplyOrForward("Fwd: Subject"));
-    itIs(true).equal(util.isReplyOrForward("Re: Subject"));
-    itIs(false).equal(util.isReplyOrForward("Subject"));
-    itIs(true).equal(util.isReplyOrForward("RE: Re: Subject"));
+    assert(util.isReplyOrForward("Fwd: Subject"));
+    
+    assert(util.isReplyOrForward("Re: Subject"));
+    assert(!util.isReplyOrForward("Subject"));
+    assert(util.isReplyOrForward("RE: Re: Subject"));
 
     var str = "<e22ff8510609251339s53fed0dcka38d118e00ed9ef7@mail.gmail.com>";
     var messageId = "e22ff8510609251339s53fed0dcka38d118e00ed9ef7@mail.gmail.com";
-    itIs(messageId).equal(util.normalizeMessageId(str));
+    assert.equal(messageId, util.normalizeMessageId(str));
 
-    var str = "pizza tacos <e22ff8510609251339s53fed0dcka38d118e00ed9ef7@mail.gmail.com>";
-    var messageId = "e22ff8510609251339s53fed0dcka38d118e00ed9ef7@mail.gmail.com";
-    itIs(messageId).equal(util.normalizeMessageId(str));
+    str = "pizza tacos <e22ff8510609251339s53fed0dcka38d118e00ed9ef7@mail.gmail.com>";
+    messageId = "e22ff8510609251339s53fed0dcka38d118e00ed9ef7@mail.gmail.com";
+    assert.equal(messageId, util.normalizeMessageId(str));
 
-    var str = "a b c";
-    var messageId = null;
-    itIs(null).equal(util.normalizeMessageId(str));
+    str = "a b c";
+    assert.equal(null, util.normalizeMessageId(str));
 
-    var str = "<e22ff8510609251339s53fed0dcka38d118e00ed9ef7@mail.gmail.com> asd sf";
-    var messageId = ["e22ff8510609251339s53fed0dcka38d118e00ed9ef7@mail.gmail.com"];
-    itIs(messageId[0]).equal(util.parseReferences(str)[0]);
+    str = "<e22ff8510609251339s53fed0dcka38d118e00ed9ef7@mail.gmail.com> asd sf";
+    messageId = ["e22ff8510609251339s53fed0dcka38d118e00ed9ef7@mail.gmail.com"];
+    assert.equal(messageId[0], util.parseReferences(str)[0]);
 
-    var str = "<a@mail.gmail.com> <b@mail.gmail.com>";
-    var messageId = ["a@mail.gmail.com", "b@mail.gmail.com"];
-    itIs(messageId[0]).equal(util.parseReferences(str)[0]);
-    itIs(messageId[1]).equal(util.parseReferences(str)[1]);
+    str = "<a@mail.gmail.com> <b@mail.gmail.com>";
+    messageId = ["a@mail.gmail.com", "b@mail.gmail.com"];
+    assert.equal(messageId[0], util.parseReferences(str)[0]);
+    assert.equal(messageId[1], util.parseReferences(str)[1]);
 
-    var str = "<a@mail.gmail.com> <b@mail.gmail.com>";
-    var messageId = ["a@mail.gmail.com", "b@mail.gmail.com"];
-    itIs(messageId[0]).equal(util.parseReferences(str)[0]);
-    itIs(messageId[1]).equal(util.parseReferences(str)[1]);
+    str = "<a@mail.gmail.com> <b@mail.gmail.com>";
+    messageId = ["a@mail.gmail.com", "b@mail.gmail.com"];
+    assert.equal(messageId[0], util.parseReferences(str)[0]);
+    assert.equal(messageId[1], util.parseReferences(str)[1]);
 
-    var str = "sdf <a> sdf <b> sdf";
-    var messageId = ["a", "b"];
-    itIs(messageId[0]).equal(util.parseReferences(str)[0]);
-    itIs(messageId[1]).equal(util.parseReferences(str)[1]);
+    str = "sdf <a> sdf <b> sdf";
+    messageId = ["a", "b"];
+    assert.equal(messageId[0], util.parseReferences(str)[0]);
+    assert.equal(messageId[1], util.parseReferences(str)[1]);
     done();
   });
 
@@ -206,12 +278,11 @@ describe('Test conversation', function() {
         if (err) {
           return done(err);
         }
-
-        itIs(msgs[1].messageId).equal(childMessageId(idTable, "a2", 0));
-        itIs(msgs[2].messageId).equal(childMessageId(idTable, "b2", 0));
-        itIs(msgs[3].messageId).equal(childMessageId(idTable, "c2", 0));
-        itIs(msgs[4].messageId).equal(childMessageId(idTable, "d2", 0));
-        itIs(0).equal(childCount(idTable, "e2"));
+        assert.equal(msgs[1].messageId, childMessageId(idTable, "a2", 0));
+        assert.equal(msgs[2].messageId, childMessageId(idTable, "b2", 0));
+        assert.equal(msgs[3].messageId, childMessageId(idTable, "c2", 0));
+        assert.equal(msgs[4].messageId, childMessageId(idTable, "d2", 0));
+        assert.equal(0, childCount(idTable, "e2"));
         done();
       });
     });
@@ -259,7 +330,7 @@ describe('Test conversation', function() {
         if (err) {
           return done(err);
         }
-        itIs(5).equal(Object.keys(thread.idTable).length);
+        assert.equal(5, Object.keys(thread.idTable).length);
         done();
       });
     });
@@ -305,12 +376,12 @@ describe('Test conversation', function() {
         if (err) {
           return done(err);
         }
-        itIs(5).equal(Object.keys(idTable).length);
-        itIs(msgs[1].messageId).equal(childMessageId(idTable, "a4", 0));
-        itIs(true).equal(isDummy(idTable["c4"]));
-        itIs(msgs[2].messageId).equal(childMessageId(idTable, "c4", 0));
-        itIs(msgs[3].messageId).equal(childMessageId(idTable, "d4", 0));
-        itIs(0).equal(childCount(idTable, "e4"));
+        assert.equal(5, Object.keys(idTable).length);
+        assert.equal(msgs[1].messageId, childMessageId(idTable, "a4", 0));
+        assert(isDummy(idTable["c4"]));
+        assert.equal(msgs[2].messageId, childMessageId(idTable, "c4", 0));
+        assert.equal(msgs[3].messageId, childMessageId(idTable, "d4", 0));
+        assert.equal(0, childCount(idTable, "e4"));
         done();
       });      
     });
@@ -359,15 +430,15 @@ describe('Test conversation', function() {
         if (err) {
           return done(err);
         }
-        itIs(7).equal(Object.keys(idTable).length);
-        itIs(msgs[1].messageId).equal(childMessageId(idTable, "a5", 0));
-        itIs(true).equal(isDummy(idTable["c5"]));
-        itIs(msgs[2].messageId).equal(childMessageId(idTable, "c5", 0));
-        itIs(true).equal(isDummy(idTable["z5"]));
-        itIs(true).equal(isDummy(idTable["y5"]));
-        itIs(0).equal(childCount(idTable, "y5"));
-        itIs(msgs[3].messageId).equal(childMessageId(idTable, "d5", 0));
-        itIs(0).equal(childCount(idTable, "e5"));
+        assert.equal(7, Object.keys(idTable).length);
+        assert.equal(msgs[1].messageId, childMessageId(idTable, "a5", 0));
+        assert(isDummy(idTable["c5"]));
+        assert.equal(msgs[2].messageId, childMessageId(idTable, "c5", 0));
+        assert(isDummy(idTable["z5"]));
+        assert(isDummy(idTable["y5"]));
+        assert.equal(0, childCount(idTable, "y5"));
+        assert.equal(msgs[3].messageId, childMessageId(idTable, "d5", 0));
+        assert.equal(0, childCount(idTable, "e5"));
         done();
       });
     });
@@ -427,10 +498,10 @@ describe('Test conversation', function() {
                       if (err) {
                         return done(err);
                       }
-                      itIs(containerA).equal(root.children[0]);
-                      itIs(1).equal(containerA.children.length);
-                      itIs(containerB).equal(containerA.children[0]);
-                      itIs(0).equal(containerB.children.length);
+                      assert.equal(containerA, root.children[0]);
+                      assert.equal(1, containerA.children.length);
+                      assert.equal(containerB, containerA.children[0]);
+                      assert.equal(0, containerB.children.length);
                       done();                    
                     });
                   });
@@ -508,10 +579,10 @@ describe('Test conversation', function() {
                           if (err) {
                             return done(err);
                           }
-                          itIs(1).equal(root.children.length);
-                          itIs(containerA.id).equal(root.children[0].id);
-                          itIs(containerB.id).equal(containerA.children[0].id);
-                          itIs(containerC.id).equal(containerB.children[0].id);
+                          assert.equal(1, root.children.length);
+                          assert.equal(containerA.id, root.children[0].id);
+                          assert.equal(containerB.id, containerA.children[0].id);
+                          assert.equal(containerC.id, containerB.children[0].id);
                           done();
                         });
                       });
@@ -581,9 +652,9 @@ describe('Test conversation', function() {
                       if (err) {
                         return done(err);
                       }
-                      itIs(2).equal(root.children.length);
-                      itIs(containerA.id).equal(root.children[0].id);
-                      itIs(containerB.id).equal(root.children[1].id);
+                      assert.equal(2, root.children.length);
+                      assert.equal(containerA.id, root.children[0].id);
+                      assert.equal(containerB.id, root.children[1].id);
                       done();                    
                     });
                   });               
@@ -662,12 +733,12 @@ describe('Test conversation', function() {
                           if (err) {
                             return done(err);
                           }
-                          itIs(2).equal(root.children.length);
-                          itIs(containerA.id).equal(root.children[0].id);
-                          itIs(true).equal(isDummy(root.children[1]));
-                          itIs(2).equal(containerZ.children.length);
-                          itIs(containerB.id).equal(containerZ.children[0].id);
-                          itIs(containerC.id).equal(containerZ.children[1].id);
+                          assert.equal(2, root.children.length);
+                          assert.equal(containerA.id, root.children[0].id);
+                          assert(isDummy(root.children[1]));
+                          assert.equal(2, containerZ.children.length);
+                          assert.equal(containerB.id, containerZ.children[0].id);
+                          assert.equal(containerC.id, containerZ.children[1].id);
                           done();
                         });
                       });
@@ -768,17 +839,17 @@ describe('Test conversation', function() {
                                   if (err) {
                                     return done(err);
                                   }
-                                  itIs(2).equal(root.children.length);
-                                  itIs(containerA).equal(root.children[0]);
-                                  itIs(true).equal(isDummy(root.children[1]));
-                                  itIs(3).equal(root.children[1].children.length);
+                                  assert.equal(2, root.children.length);
+                                  assert.equal(containerA, root.children[0]);
+                                  assert(isDummy(root.children[1]));
+                                  assert.equal(3, root.children[1].children.length);
                                   var children = [];
                                   children.push(root.children[1].children[0].id);
                                   children.push(root.children[1].children[1].id);
                                   children.push(root.children[1].children[2].id);
-                                  itIs(children.indexOf(containerD.id) >= 0).equal(true);
-                                  itIs(children.indexOf(containerC.id) >= 0).equal(true);
-                                  itIs(children.indexOf(containerB.id) >= 0).equal(true);
+                                  assert(children.indexOf(containerD.id) >= 0);
+                                  assert(children.indexOf(containerC.id) >= 0);
+                                  assert(children.indexOf(containerB.id) >= 0);
                                   done();
                                 });
                               });
@@ -893,17 +964,17 @@ describe('Test conversation', function() {
                                       if (err) {
                                         return done(err);
                                       }
-                                      itIs(2).equal(root.children.length);
-                                      itIs(containerA).equal(root.children[0]);
-                                      itIs(true).equal(isDummy(root.children[1]));
-                                      itIs(3).equal(containerZ.children.length);
+                                      assert.equal(2, root.children.length);
+                                      assert.equal(containerA, root.children[0]);
+                                      assert(isDummy(root.children[1]));
+                                      assert.equal(3, containerZ.children.length);
                                       var children = [];
                                       children.push(containerZ.children[0].id);
                                       children.push(containerZ.children[1].id);
                                       children.push(containerZ.children[2].id);
-                                      itIs(true).equal(children.indexOf(containerD.id) >= 0);
-                                      itIs(true).equal(children.indexOf(containerB.id) >= 0);
-                                      itIs(true).equal(children.indexOf(containerC.id) >= 0);
+                                      assert(children.indexOf(containerD.id) >= 0);
+                                      assert(children.indexOf(containerB.id) >= 0);
+                                      assert(children.indexOf(containerC.id) >= 0);
                                       done();
                                     });
                                   });
@@ -985,9 +1056,9 @@ describe('Test conversation', function() {
                           if (err) {
                             return done(err);
                           }
-                          itIs(1).equal(root.children.length);
-                          itIs(containerA.id).equal(root.children[0].id);
-                          itIs(0).equal(containerZ.children.length);
+                          assert.equal(1, root.children.length);
+                          assert.equal(containerA.id, root.children[0].id);
+                          assert.equal(0, containerZ.children.length);
                           done();
                         });
                       });
@@ -1116,18 +1187,18 @@ describe('Test conversation', function() {
                                               if (err) {
                                                 return done(err);
                                               }
-                                              itIs(1).equal(root.children.length);
-                                              itIs(containerZ).equal(root.children[0]);
-                                              itIs(2).equal(containerZ.children.length);
+                                              assert.equal(1, root.children.length);
+                                              assert.equal(containerZ, root.children[0]);
+                                              assert.equal(2, containerZ.children.length);
                                               var Zchildren = [];
                                               Zchildren.push(containerZ.children[0].id);
                                               Zchildren.push(containerZ.children[1].id);
-                                              itIs(true).equal(Zchildren.indexOf(containerC.id) >= 0);
-                                              itIs(true).equal(Zchildren.indexOf(containerA.id) >= 0);
-                                              itIs(1).equal(containerA.children.length);
-                                              itIs(containerB.id).equal(containerA.children[0].id);
-                                              itIs(1).equal(containerC.children.length);
-                                              itIs(containerD.id).equal(containerC.children[0].id);
+                                              assert(Zchildren.indexOf(containerC.id) >= 0);
+                                              assert(Zchildren.indexOf(containerA.id) >= 0);
+                                              assert.equal(1, containerA.children.length);
+                                              assert.equal(containerB.id, containerA.children[0].id);
+                                              assert.equal(1, containerC.children.length);
+                                              assert.equal(containerD.id, containerC.children[0].id);
                                               done();
                                             });
                                           });
@@ -1333,22 +1404,22 @@ describe('Test conversation', function() {
                                                                           if (err) {
                                                                             return done(err);
                                                                           }
-                                                                          itIs(1).equal(root.children.length);
-                                                                          itIs(containerZ.id).equal(root.children[0].id);
-                                                                          itIs(4).equal(containerZ.children.length);
+                                                                          assert.equal(1, root.children.length);
+                                                                          assert.equal(containerZ.id, root.children[0].id);
+                                                                          assert.equal(4, containerZ.children.length);
                                                                           var Zchildren = [];
                                                                           Zchildren.push(containerZ.children[0].id);
                                                                           Zchildren.push(containerZ.children[1].id);
                                                                           Zchildren.push(containerZ.children[2].id);
                                                                           Zchildren.push(containerZ.children[3].id);
-                                                                          itIs(true).equal(Zchildren.indexOf(containerF.id) >= 0);
-                                                                          itIs(true).equal(Zchildren.indexOf(containerE.id) >= 0);
-                                                                          itIs(true).equal(Zchildren.indexOf(containerC.id) >= 0);
-                                                                          itIs(true).equal(Zchildren.indexOf(containerA.id) >= 0);
-                                                                          itIs(1).equal(containerA.children.length);
-                                                                          itIs(containerB.id).equal(containerA.children[0].id);
-                                                                          itIs(1).equal(containerC.children.length);
-                                                                          itIs(containerD.id).equal(containerC.children[0].id);
+                                                                          assert(Zchildren.indexOf(containerF.id) >= 0);
+                                                                          assert(Zchildren.indexOf(containerE.id) >= 0);
+                                                                          assert(Zchildren.indexOf(containerC.id) >= 0);
+                                                                          assert(Zchildren.indexOf(containerA.id) >= 0);
+                                                                          assert.equal(1, containerA.children.length);
+                                                                          assert.equal(containerB.id, containerA.children[0].id);
+                                                                          assert.equal(1, containerC.children.length);
+                                                                          assert.equal(containerD.id, containerC.children[0].id);
                                                                           done();
                                                                         });
                                                                       });
@@ -1440,20 +1511,16 @@ describe('Test conversation', function() {
                           if (err) {
                             return done(err);
                           }
-                          itIs(true).equal(typeof (subjectHash.subject_a) !== 'undefined');
-                          itIs(true).equal(typeof (subjectHash.subject_z) !== 'undefined');
-                          itIs(2).equal(root.children.length);
-                          var rootChildreen = [];
-                          rootChildreen.push(root.children[0].id);
-                          rootChildreen.push(root.children[1].id);
-                          itIs(true).equal(rootChildreen.indexOf(containerA.id) >= 0);
-                          itIs(true).equal(rootChildreen.indexOf(containerD.id) >= 0);
-                          itIs(2).equal(containerD.children.length);
-                          var Dchildreen = [];
-                          Dchildreen.push(containerD.children[0].id);
-                          Dchildreen.push(containerD.children[1].id);
-                          itIs(true).equal(Dchildreen.indexOf(containerC.id) >= 0);
-                          itIs(true).equal(Dchildreen.indexOf(containerB.id) >= 0);
+                          assert(typeof (subjectHash.subject_a) !== 'undefined');
+                          assert(typeof (subjectHash.subject_z) !== 'undefined');
+                          assert.equal(2, root.children.length);
+                          var rootChildreen = _.map(root.children, 'id');
+                          assert(rootChildreen.indexOf(containerA.id) >= 0);
+                          assert(rootChildreen.indexOf(containerD.id) >= 0);
+                          assert.equal(2, containerD.children.length);
+                          var Dchildreen = _.map(containerD.children, 'id');
+                          assert(Dchildreen.indexOf(containerC.id) >= 0);
+                          assert(Dchildreen.indexOf(containerB.id) >= 0);
                           done();                
                         });
                       });
@@ -1521,20 +1588,16 @@ describe('Test conversation', function() {
                           if (err) {
                             return done(err);
                           }
-                          itIs(true).equal(typeof (subjectHash.subject_a) !== 'undefined');
-                          itIs(true).equal(typeof (subjectHash.subject_z) !== 'undefined');
-                          itIs(2).equal(root.children.length);
-                          var rootChildreen = [];
-                          rootChildreen.push(root.children[0].id);
-                          rootChildreen.push(root.children[1].id);
-                          itIs(true).equal(rootChildreen.indexOf(containerA.id) >= 0);
-                          itIs(true).equal(rootChildreen.indexOf(containerD.id) >= 0);
-                          itIs(2).equal(containerD.children.length);
-                          var Dchildreen = [];
-                          Dchildreen.push(containerD.children[0].id);
-                          Dchildreen.push(containerD.children[1].id);
-                          itIs(true).equal(Dchildreen.indexOf(containerC.id) >= 0);
-                          itIs(true).equal(Dchildreen.indexOf(containerB.id) >= 0);
+                          assert(typeof (subjectHash.subject_a) !== 'undefined');
+                          assert(typeof (subjectHash.subject_z) !== 'undefined');
+                          assert.equal(2, root.children.length);
+                          var rootChildreen = _.map(root.children, 'id');
+                          assert(rootChildreen.indexOf(containerA.id) >= 0);
+                          assert(rootChildreen.indexOf(containerD.id) >= 0);
+                          assert.equal(2, containerD.children.length);
+                          var Dchildreen = _.map(containerD.children, 'id');
+                          assert(Dchildreen.indexOf(containerC.id) >= 0);
+                          assert(Dchildreen.indexOf(containerB.id) >= 0);
                           done();
                         });
                       });
@@ -1574,24 +1637,24 @@ describe('Test conversation', function() {
         if (err) {
           return done(err);
         }
-        itIs(1).equal(root.children.length);
-        itIs("a17").equal(root.children[0].message.messageId);
-        itIs("b17").equal(root.children[0].children[0].message.messageId);
-        itIs("c17").equal(root.children[0].children[0].children[0].message.messageId);
-        itIs("d17").equal(root.children[0].children[0].children[0].children[0].message.messageId);
-        itIs("e17").equal(root.children[0].children[0].children[0].children[0].children[0].message.messageId);
+        assert.equal(1, root.children.length);
+        assert.equal('a17', root.children[0].message.messageId);
+        assert.equal('b17', root.children[0].children[0].message.messageId);
+        assert.equal('c17', root.children[0].children[0].children[0].message.messageId);
+        assert.equal('d17', root.children[0].children[0].children[0].children[0].message.messageId);
+        assert.equal('e17', root.children[0].children[0].children[0].children[0].children[0].message.messageId);
 
         // ensure getContainer and hasDescendant are working as expected
         root.getSpecificChild("e17", function(err, e) {
           if (err) {
             return done(err);
           }
-          itIs(e.message.messageId).equal("e17");
+          assert.equal(e.message.messageId, 'e17');
           root.hasDescendant(e, function(err, hasDescendant) {
             if (err) {
               return done(err);
             }
-            itIs(hasDescendant).equal(true);
+            assert(hasDescendant);
             done();
           });
         });
@@ -1627,9 +1690,9 @@ describe('Test conversation', function() {
         if (err) {
           return done(err);
         }
-        itIs(1).equal(root.children.length);
-        itIs(null).equal(root.message);
-        itIs(3).equal(root.children[0].children.length);
+        assert.equal(1, root.children.length);
+        assert(_.isNull(root.message));
+        assert.equal(3, root.children[0].children.length);
         done();      
       });
     });
@@ -1658,9 +1721,9 @@ describe('Test conversation', function() {
         if (err) {
           done(err);
         }
-        itIs(1).equal(root.children.length);
-        itIs(null).equal(root.message);
-        itIs(3).equal(root.children[0].children.length);
+        assert.equal(1, root.children.length);
+        assert(_.isNull(root.message));
+        assert.equal(3, root.children[0].children.length);
         done();      
       });
     });
@@ -1712,23 +1775,22 @@ describe('Test conversation', function() {
                   return done(err);
                 }
 
-                itIs("e20").equal(msg.message.messageId);
-                itIs("d20").equal(msg.parent.message.messageId);
-                itIs("c20").equal(msg.parent.parent.message.messageId);
-                itIs("b20").equal(msg.parent.parent.parent.message.messageId);
-                itIs("a20").equal(msg.parent.parent.parent.parent.message.messageId);
+                assert.equal('e20', msg.message.messageId);
+                assert.equal('d20', msg.parent.message.messageId);
+                assert.equal('c20', msg.parent.parent.message.messageId);
+                assert.equal('b20', msg.parent.parent.parent.message.messageId);
+                assert.equal('a20', msg.parent.parent.parent.parent.message.messageId);
 
                 // ensure getContainer and hasDescendant are working as expected
                 msg.parent.parent.parent.parent.getSpecificChild("e20", function(err, e) {
                   if (err) {
                     return done(err);
                   }
-                  //itIs(e.message.references).deepEqual(["d17"]);
                   msg.parent.parent.parent.parent.hasDescendant(e, function(err, hasDescendant) {
                     if (err) {
                       return done(err);
                     }
-                    itIs(hasDescendant).equal(true);
+                    assert(hasDescendant);
                     done();
                   });
                 });

@@ -1,4 +1,4 @@
-var helpers = module.exports = {
+module.exports = {
   isReplyOrForward: function(subject) {
     var pattern = /^(Re|Fwd)/i;
     var match = subject.match(pattern);
@@ -15,8 +15,9 @@ var helpers = module.exports = {
     return match ? match[1] : null;
   },
   parseReferences: function(references) {
-    if (! references)
+    if (!references) {
       return null;
+    }
     var pattern = /<[^<>]+>/g;
     return references.match(pattern).map(function(match) {
       return match.match(/[^<>]+/)[0];

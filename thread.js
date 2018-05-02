@@ -48,13 +48,13 @@ Thread.prototype.thread = function(messages, cb) {
 
 Thread.prototype.insert = function(message, cb) {
   var self = this;
-  this.thread(message, function(err, root) {
+  this.thread(message, function(err) {
     if (err) {
       return cb(err);
     }
     cb(null, self.idTable[message.messageId]);
   });
-}
+};
 
 Thread.prototype.pruneEmpties = function(parent, cb) {
   if (!cb) {
@@ -81,16 +81,16 @@ Thread.prototype.pruneEmpties = function(parent, cb) {
       if (container.children.length === 0) {
         return parent.removeChild(container, cb);
       }
-      
+
       // if parent is root and container has more than one child do nothing
       if (!parent.parent && container.children.length > 1) {
         return cb();
       }
       self.promoteChildren(parent, container, cb);
 
-    });      
+    });
   }).serie().fail(cb).done(function() {
-    cb(); 
+    cb();
   });
 };
 
@@ -98,15 +98,15 @@ Thread.prototype.promoteChildren = function(parent, container, cb) {
   if (!cb) {
     throw new Error('Usage: promoteChildren(parent, container, cb)');
   }
-  if (! parent instanceof Container) {
+  if (!(parent instanceof Container)) {
     throw new Error('Usage: promoteChildren(parent, container, cb) => parent must be an instance of Container');
   }
-  if (! container instanceof Container) {
+  if (!(container instanceof Container)) {
     throw new Error('Usage: promoteChildren(parent, container, cb) => container must be an instance of Container');
   }
   asynk.each(container.children, function(child, cb) {
     parent.addChild(child, cb);
-  }).serie().done(function() { 
+  }).serie().done(function() {
     parent.removeChild(container, cb);
   }).fail(cb);
 };
@@ -130,7 +130,6 @@ Thread.prototype.createIdTable = function(messages, cb) {
           return cb(err);
         }
         var prev = null;
-        var prevMessageId = null;
         var references = message.references || [];
         if (typeof (references) === 'string') {
           references = [references];
@@ -151,13 +150,11 @@ Thread.prototype.createIdTable = function(messages, cb) {
                     return cb(err);
                   }
                   prev = container;
-                  prevMessageId = reference;
                   cb();
                 });
-              } 
+              }
               prev = container;
-              prevMessageId = reference;
-              cb();                
+              cb();
             });
           });
         }).serie().done(function() {
@@ -168,7 +165,7 @@ Thread.prototype.createIdTable = function(messages, cb) {
             if (prev && !hasDescendant) {
               return prev.addChild(parentContainer, cb);
             }
-            cb();              
+            cb();
           });
         }).fail(function(err) {
           cb(err);
@@ -176,7 +173,6 @@ Thread.prototype.createIdTable = function(messages, cb) {
       });
     });
   }).serie().fail(cb).done(function() { cb(null, self.idTable); });
-  // return idTable;
 };
 
 Thread.prototype.getContainer = function(messageId, cb) {
@@ -210,11 +206,11 @@ Thread.prototype.createContainer = function(id, cb) {
     if (err) {
       return cb(err);
     }
-    self.conversation._create({messageId: id, container: cnt.id}, function(err, conversation) {
+    self.conversation._create({messageId: id, container: cnt.id}, function(err) {
       if (err) {
         return cb(err);
       }
-      ctn = new Container(cnt, self.context);
+      var ctn = new Container(cnt, self.context);
       self.ContainerCache[cnt.id] = self.idTable[id] = ctn;
       cb(null, ctn);
     });
@@ -225,6 +221,7 @@ Thread.prototype.groupBySubject = function(root, cb) {
   if (!cb) {
     throw new Error('Usage: groupBySubject(root, cb)');
   }
+  var self = this;
   var subjectTable = {};
   asynk.each(root.children, function(container, cb) {
     var c;
@@ -233,11 +230,11 @@ Thread.prototype.groupBySubject = function(root, cb) {
     } else {
       c = container;
     }
-    
+
     if (!c || !c.message) {
       return cb();
     }
-    
+
     var message = c.message;
 
     var subject = helpers.normalizeSubject(message.subject);
@@ -246,55 +243,59 @@ Thread.prototype.groupBySubject = function(root, cb) {
     }
     var existing = subjectTable[subject];
 
-    if (! existing) {
+    if (!existing) {
       subjectTable[subject] = c;
     } else if (!_.isUndefined(existing.message) && (_.isUndefined(c.message) || helpers.isReplyOrForward(existing.message.subject) && !helpers.isReplyOrForward(message.subject) ) ) {
       subjectTable[subject] = c;
     }
-    
+
     cb();
   }).alias('subjectTable')
-  .each(root.children , function(container, cb) {
-    if (container.message) {
-      var subject = container.message.subject;
-    } else {
-      var subject = container.children[0].message.subject;
-    }
+    .each(root.children , function(container, cb) {
+      var subject;
+      if (container.message) {
+        subject = container.message.subject;
+      } else {
+        subject = container.children[0].message.subject;
+      }
 
-    subject = helpers.normalizeSubject(subject);
-    var c = subjectTable[subject];
+      subject = helpers.normalizeSubject(subject);
+      var c = subjectTable[subject];
 
-    if (! c || c === container) {
-      return cb();
-    }
+      if (!c || c === container) {
+        return cb();
+      }
 
-    if (_.isUndefined(c.message) && _.isUndefined(container.message)) {
-      asynk.each(container.children, function(ctr, cb) {
-        c.addChild(ctr, cb);
-      }).serie().done(function() { cb(); }).fail(cb);
-      container.parent.removeChild(container, cb);
-    } else if (_.isUndefined(c.message) && !_.isUndefined(container.message)) {
-      c.addChild(container, cb);
-    } else if ( !helpers.isReplyOrForward(c.message.subject) && helpers.isReplyOrForward(container.message.subject) ) {
-      c.addChild(container, cb);
-    } else {
-      self.messageContainer(function(err, newContainer) {
-        if (err) {
-          return cb(err);
-        }
-        newContainer.addChild(c, function(err) {
+      if (_.isUndefined(c.message) && _.isUndefined(container.message)) {
+        asynk.each(container.children, function(ctr, cb) {
+          c.addChild(ctr, cb);
+        }).serie().done(function() { cb(); }).fail(cb);
+        container.parent.removeChild(container, cb);
+      } else if (_.isUndefined(c.message) && !_.isUndefined(container.message)) {
+        c.addChild(container, cb);
+      } else if ( !helpers.isReplyOrForward(c.message.subject) && helpers.isReplyOrForward(container.message.subject) ) {
+        c.addChild(container, cb);
+      } else {
+        self.messageContainer(function(err, newContainer) {
           if (err) {
             return cb(err);
           }
-          newContainer.addChild(container, function(err) {
+          newContainer.addChild(c, function(err) {
             if (err) {
               return cb(err);
             }
-            subjectTable[subject] = newContainer;
-            cb();
+            newContainer.addChild(container, function(err) {
+              if (err) {
+                return cb(err);
+              }
+              subjectTable[subject] = newContainer;
+              cb();
+            });
           });
         });
-      });
-    }        
-  }).require('subjectTable').serie().fail(cb).done(function() { cb(null, subjectTable); });
+      }
+    }).require('subjectTable')
+    .serie().fail(cb).done(function() {
+      cb(null, subjectTable);
+    });
 };

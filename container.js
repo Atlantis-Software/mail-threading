@@ -16,7 +16,7 @@ var Container = module.exports = function(data, context) {
   this.message = null;
   this.id = data.id;
   if (data.message) {
-    if (!data.message instanceof Message) {
+    if (!(data.message instanceof Message)) {
       throw new Error('Usage: Container.Contructor(data, context) => data.message must be an instance of Message');
     }
     this.message = data.message;
@@ -31,7 +31,7 @@ Container.prototype.load = function(cache, cb) {
   }
   this.container._read({id: this.id}, function(err, thisContainer) {
     if (err) {
-      return cd(err);
+      return cb(err);
     }
     if (thisContainer.message && thisContainer.message.id) {
       self.message = Message(thisContainer.message.id, thisContainer.message.subject, thisContainer.message.messageId);
@@ -71,7 +71,7 @@ Container.prototype.load = function(cache, cb) {
 };
 
 Container.prototype.getConversation = function(id, cb) {
-  if (! cb) {
+  if (!cb) {
     throw new Error('Usage: getConversation(id, cb)');
   }
   this.getSpecificChild(id, function(err, child) {
@@ -108,7 +108,7 @@ Container.prototype.flattenChildren = function() {
 };
 
 Container.prototype.getSpecificChild = function(id, cb) {
-  if (! cb) {
+  if (!cb) {
     throw new Error('Usage: getSpecificChild(id, cb)');
   }
   var instance = this;
@@ -135,18 +135,18 @@ Container.prototype.getSpecificChild = function(id, cb) {
 };
 
 Container.prototype.threadParent = function() {
-  if (! this.message) {
+  if (!this.message) {
     return this;
   }
   var next = this.parent;
-  if (! next) {
+  if (!next) {
     return this;
   }
   var top = next;
   while (next) {
     next = next.parent;
     if (next) {
-      if (! next.message) {
+      if (!next.message) {
         return top;
       }
       top = next;
@@ -157,10 +157,10 @@ Container.prototype.threadParent = function() {
 
 Container.prototype.addChild = function(child, cb) {
   var self = this;
-  if (! cb) {
+  if (!cb) {
     throw new Error('Usage: addChild(child, cb)');
   }
-  if (! child instanceof Container) {
+  if (!(child instanceof Container)) {
     throw new Error('Usage: addChild(child, cb) => child must be an instance of Container');
   }
   // check if child is already a child
@@ -200,27 +200,26 @@ Container.prototype.removeChild = function(child, cb) {
   if (!cb) {
     throw new Error('Usage: removeChild(child, cb)');
   }
-  if (! child instanceof Container) {
+  if (!(child instanceof Container)) {
     throw new Error('Usage: removeChild(child, cb) => child must be an instance of Container');
   }
   var self = this;
-  this.container._update({id: child.id},{parent: null}, function(err) {  
+  this.container._update({id: child.id},{parent: null}, function(err) {
     if (err) {
       return cb(err);
     }
     self.children = self.children.filter(function(other) {
       return other !== child;
     });
-    delete child;
     cb();
   });
 };
 
 Container.prototype.hasDescendant = function(container, cb) {
-  if (! cb) {
+  if (!cb) {
     throw new Error('Usage: hasDescendant(container, cb)');
   }
-  if (! container instanceof Container) {
+  if (!(container instanceof Container)) {
     throw new Error('Usage: hasDescendant(container, cb) => container must be an instance of Container');
   }
   if (this === container) {
@@ -249,7 +248,7 @@ Container.prototype.setMessage = function(message, cb) {
   if (!cb) {
     throw new Error('Usage: setMessage(message, cb)');
   }
-  if (! message instanceof Message) {
+  if (!(message instanceof Message)) {
     throw new Error('Usage: setMessage(message, cb) => message must be an instance of Message');
   }
   var self =this;

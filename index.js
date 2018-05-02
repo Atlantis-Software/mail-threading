@@ -5,7 +5,6 @@
 //   }
 // ));
 // conversation = thread.getConversation(messageId);
-var asynk = require('asynk');
 var _ = require('lodash');
 
 var Container = require('./container');
@@ -45,13 +44,13 @@ mail.prototype.messageContainer = function(message, cb) {
     } else {
       return cb(null, new_ctn);
     }
-    self.conversation._create({messageId: message.messageId, container: cnt.id}, function(err, conversation) {
+    self.conversation._create({messageId: message.messageId, container: cnt.id}, function(err) {
       if (err) {
         return cb(err);
       }
       cb(null, new_ctn);
     });
-  });  
+  });
 };
 
 mail.prototype.messageThread = function() {
