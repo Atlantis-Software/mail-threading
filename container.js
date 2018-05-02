@@ -16,9 +16,6 @@ var Container = module.exports = function(data, context) {
   this.message = null;
   this.id = data.id;
   if (data.message) {
-    if (!(data.message instanceof Message)) {
-      throw new Error('Usage: Container.Contructor(data, context) => data.message must be an instance of Message');
-    }
     this.message = data.message;
   }
 };
@@ -219,9 +216,6 @@ Container.prototype.hasDescendant = function(container, cb) {
   if (!cb) {
     throw new Error('Usage: hasDescendant(container, cb)');
   }
-  if (!(container instanceof Container)) {
-    throw new Error('Usage: hasDescendant(container, cb) => container must be an instance of Container');
-  }
   if (this === container) {
     return cb(null, true);
   }
@@ -247,9 +241,6 @@ Container.prototype.hasDescendant = function(container, cb) {
 Container.prototype.setMessage = function(message, cb) {
   if (!cb) {
     throw new Error('Usage: setMessage(message, cb)');
-  }
-  if (!(message instanceof Message)) {
-    throw new Error('Usage: setMessage(message, cb) => message must be an instance of Message');
   }
   var self =this;
   self.container._update({id: self.id}, {message: message.id}, function(err) {
